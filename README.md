@@ -14,20 +14,17 @@ AI-powered resume analysis platform with ATS scoring, Gemini AI feedback, and in
 
 ## Screenshots
 
-### Login
-![Login](screenshots/login.png)
+![Screenshot 1](screenshots/s1.png)
 
-### User Dashboard
-![User Dashboard](screenshots/user-dashboard.png)
+![Screenshot 2](screenshots/s2.png)
 
-### Analysis Results
-![Analysis Results](screenshots/results.png)
+![Screenshot 3](screenshots/s3.png)
 
-### Admin Dashboard
-![Admin Dashboard](screenshots/admin-dashboard.png)
+![Screenshot 4](screenshots/s4.png)
 
-### Dark Mode
-![Dark Mode](screenshots/dark-mode.png)
+![Screenshot 5](screenshots/s5.png)
+
+![Screenshot 6](screenshots/s6.png)
 
 ## Tech Stack
 
