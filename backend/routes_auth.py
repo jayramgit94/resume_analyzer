@@ -1,3 +1,4 @@
+import traceback
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, EmailStr
@@ -22,41 +23,59 @@ class LoginRequest(BaseModel):
 
 @router.post("/register")
 async def register(req: RegisterRequest):
-    db = get_db()
-    existing = await db.users.find_one({"email": req.email})
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
+    try:
+        db = get_db()
+        if db is None:
+            raise HTTPException(status_code=503, detail="Database not connected. Check MONGO_URI env var.")
+        existing = await db.users.find_one({"email": req.email})
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already registered")
 
-    role = "admin" if req.email in ADMIN_EMAILS else "user"
-    user_doc = {
-        "name": req.name,
-        "email": req.email,
-        "password": hash_password(req.password),
-        "role": role,
-        "created_at": datetime.now(timezone.utc),
-    }
-    result = await db.users.insert_one(user_doc)
-    token = create_access_token({"sub": str(result.inserted_id)})
+        role = "admin" if req.email in ADMIN_EMAILS else "user"
+        user_doc = {
+            "name": req.name,
+            "email": req.email,
+            "password": hash_password(req.password),
+            "role": role,
+            "created_at": datetime.now(timezone.utc),
+        }
+        result = await db.users.insert_one(user_doc)
+        token = create_access_token({"sub": str(result.inserted_id)})
 
-    return {
-        "token": token,
-        "user": {"id": str(result.inserted_id), "name": req.name, "email": req.email, "role": role},
-    }
+        return {
+            "token": token,
+            "user": {"id": str(result.inserted_id), "name": req.name, "email": req.email, "role": role},
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[REGISTER ERROR] {type(e).__name__}: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal error: {type(e).__name__}: {str(e)}")
 
 
 @router.post("/login")
 async def login(req: LoginRequest):
-    db = get_db()
-    user = await db.users.find_one({"email": req.email})
-    if not user or not verify_password(req.password, user["password"]):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+    try:
+        db = get_db()
+        if db is None:
+            raise HTTPException(status_code=503, detail="Database not connected. Check MONGO_URI env var.")
+        user = await db.users.find_one({"email": req.email})
+        if not user or not verify_password(req.password, user["password"]):
+            raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    token = create_access_token({"sub": str(user["_id"])})
+        token = create_access_token({"sub": str(user["_id"])})
 
-    return {
-        "token": token,
-        "user": {"id": str(user["_id"]), "name": user["name"], "email": user["email"], "role": user.get("role", "user")},
-    }
+        return {
+            "token": token,
+            "user": {"id": str(user["_id"]), "name": user["name"], "email": user["email"], "role": user.get("role", "user")},
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[LOGIN ERROR] {type(e).__name__}: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal error: {type(e).__name__}: {str(e)}")
 
 
 @router.get("/me")

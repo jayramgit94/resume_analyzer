@@ -50,6 +50,30 @@ async def root():
     return {"status": "ok", "message": "AI Resume Analyzer API"}
 
 
+@app.get("/debug/health")
+async def debug_health():
+    """Debug endpoint to check DB connection and env vars on Vercel."""
+    import os
+    from backend.database import get_db
+    info = {
+        "mongo_uri_set": bool(os.environ.get("MONGO_URI")),
+        "jwt_secret_set": bool(os.environ.get("JWT_SECRET")),
+        "gemini_key_set": bool(os.environ.get("GEMINI_API_KEY")),
+        "db_connected": get_db() is not None,
+    }
+    # Test actual DB ping
+    try:
+        db = get_db()
+        if db is not None:
+            await db.command("ping")
+            info["db_ping"] = "ok"
+        else:
+            info["db_ping"] = "db is None"
+    except Exception as e:
+        info["db_ping"] = f"error: {type(e).__name__}: {str(e)}"
+    return info
+
+
 # ------------------------
 # Run
 # ------------------------
