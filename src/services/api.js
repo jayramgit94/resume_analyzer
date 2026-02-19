@@ -1,8 +1,10 @@
 import axios from "axios";
 
-// In production (Vercel), API is at /api on the same domain.
+// In production (Vercel), API is on the same domain (empty string = relative URLs).
 // In dev, FastAPI runs on localhost:8000.
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.PROD
+  ? ""
+  : import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 function authHeaders(token) {
   return token ? { Authorization: `Bearer ${token}` } : {};
