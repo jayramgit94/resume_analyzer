@@ -4,12 +4,14 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock,
+  ExternalLink,
   FileText,
   Lightbulb,
   MessageSquare,
   RotateCcw,
   Search,
   Sparkles,
+  Trophy,
   Trash2,
   TrendingUp,
   Upload,
@@ -35,8 +37,11 @@ import SkeletonLoader from "../components/ui/SkeletonLoader";
 import { useAuth } from "../context/AuthContext";
 import {
   analyzeResume,
+  getCareerPlan,
+  getJobMatch,
   deleteHistory,
   generateHRQuestions,
+  getLeaderboard,
   getHistory,
   getHistoryDetail,
 } from "../services/api";
@@ -69,8 +74,10 @@ function Card({ children, className = "" }) {
 }
 
 export default function UserDashboard() {
-  const { user, token } = useAuth();
+  const { user, token, refreshUser } = useAuth();
   const fileInput = useRef();
+  const displayName =
+    user?.name || user?.username || user?.email?.split("@")[0] || "User";
 
   /* ---------- state ---------- */
   const [tab, setTab] = useState("analyze"); // analyze | results | history
@@ -86,11 +93,24 @@ export default function UserDashboard() {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [selectedDetail, setSelectedDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [myRank, setMyRank] = useState(null);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(true);
+
+  // advanced tools
+  const [jobDescription, setJobDescription] = useState("");
+  const [jobMatchLoading, setJobMatchLoading] = useState(false);
+  const [jobMatchResult, setJobMatchResult] = useState(null);
+  const [targetRole, setTargetRole] = useState("");
+  const [careerPlanLoading, setCareerPlanLoading] = useState(false);
+  const [careerPlan, setCareerPlan] = useState(null);
 
   /* ---------- load history on mount ---------- */
   useEffect(() => {
+    refreshUser();
     loadHistory();
-  }, []);
+    loadLeaderboard();
+  }, [token]);
 
   async function loadHistory() {
     setHistoryLoading(true);
@@ -101,6 +121,19 @@ export default function UserDashboard() {
       setHistory([]);
     }
     setHistoryLoading(false);
+  }
+
+  async function loadLeaderboard() {
+    setLeaderboardLoading(true);
+    try {
+      const data = await getLeaderboard(token);
+      setLeaderboard(data.top || []);
+      setMyRank(data.current_user_rank || null);
+    } catch {
+      setLeaderboard([]);
+      setMyRank(null);
+    }
+    setLeaderboardLoading(false);
   }
 
   /* ---------- file handling ---------- */
@@ -116,6 +149,7 @@ export default function UserDashboard() {
       setResult(data);
       setTab("results");
       loadHistory(); // refresh history sidebar
+      loadLeaderboard();
     } catch (err) {
       setError(
         err.response?.data?.detail || "Failed to analyze. Please try again.",
@@ -126,13 +160,18 @@ export default function UserDashboard() {
 
   /* ---------- HR questions ---------- */
   async function handleGenerateHR() {
-    if (!result) return;
+    const sourceText =
+      result?.ai_analysis ||
+      selectedDetail?.result?.ai_analysis ||
+      [
+        ...(result?.strengths || selectedDetail?.result?.strengths || []),
+        ...(result?.suggestions || selectedDetail?.result?.suggestions || []),
+      ].join("\n");
+
+    if (!sourceText) return;
     setHrLoading(true);
     try {
-      const data = await generateHRQuestions(
-        result.ai_analysis || result.strengths?.join(", ") || "",
-        token,
-      );
+      const data = await generateHRQuestions(sourceText, token);
       setHrQuestions(data.questions || []);
     } catch {
       setHrQuestions([]);
@@ -140,9 +179,60 @@ export default function UserDashboard() {
     setHrLoading(false);
   }
 
+  async function handleJobMatch() {
+    if (!jobDescription.trim()) {
+      setError("Paste a job description first.");
+      return;
+    }
+
+    setError("");
+    setJobMatchLoading(true);
+    try {
+      const sourceText =
+        result?.ai_analysis ||
+        selectedDetail?.result?.ai_analysis ||
+        [
+          ...(result?.strengths || selectedDetail?.result?.strengths || []),
+          ...(result?.suggestions || selectedDetail?.result?.suggestions || []),
+        ].join("\n");
+
+      const data = await getJobMatch(jobDescription, sourceText, token);
+      setJobMatchResult(data);
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to generate job match.");
+    }
+    setJobMatchLoading(false);
+  }
+
+  async function handleCareerPlan() {
+    if (!targetRole.trim()) {
+      setError("Enter your target role first (example: Backend Engineer).");
+      return;
+    }
+
+    setError("");
+    setCareerPlanLoading(true);
+    try {
+      const summary =
+        result?.ai_analysis ||
+        selectedDetail?.result?.ai_analysis ||
+        [
+          ...(result?.strengths || selectedDetail?.result?.strengths || []),
+          ...(result?.weaknesses || selectedDetail?.result?.weaknesses || []),
+        ].join("\n");
+
+      const data = await getCareerPlan(targetRole, summary, token);
+      setCareerPlan(data);
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to generate mentor plan.");
+    }
+    setCareerPlanLoading(false);
+  }
+
   /* ---------- history detail ---------- */
   async function handleViewDetail(id) {
     setDetailLoading(true);
+    setHrQuestions([]);
     try {
       const data = await getHistoryDetail(id, token);
       setSelectedDetail(data);
@@ -199,21 +289,54 @@ export default function UserDashboard() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-gray-950 dark:to-gray-900">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
         {/* ---- Header ---- */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-8">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
-              Welcome, {user?.name || "User"} 👋
+              Welcome, {displayName} 👋
             </h1>
             <p className="text-gray-500 dark:text-gray-400 mt-1">
               Upload a resume to get your ATS score, AI analysis &amp; interview
               prep.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge type={scoreBadge(bestScore)} />
-            <span className="text-sm text-gray-500 dark:text-gray-400">
-              Best: {bestScore}%
-            </span>
+
+          <div className="w-full lg:w-auto grid sm:grid-cols-2 gap-3">
+            <div className="rounded-xl border border-cyan-200/70 dark:border-cyan-800/70 bg-white/80 dark:bg-gray-900/50 px-4 py-3">
+              <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                Profile
+              </p>
+              <p className="mt-1 font-semibold text-gray-900 dark:text-white">
+                {displayName}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{user?.email || "-"}</p>
+              <p className="mt-2 text-[11px] font-mono text-cyan-700 dark:text-cyan-300 break-all">
+                User ID: {user?.id || "N/A"}
+              </p>
+              {user?.created_at && (
+                <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                  Joined: {new Date(user.created_at).toLocaleDateString()}
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/50 px-4 py-3">
+              <div className="flex items-center justify-between">
+                <Badge type={scoreBadge(bestScore)} />
+                <span className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                  {user?.role || "user"}
+                </span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <p className="text-gray-500 dark:text-gray-400">Best</p>
+                  <p className="font-semibold text-gray-900 dark:text-white">{bestScore}%</p>
+                </div>
+                <div>
+                  <p className="text-gray-500 dark:text-gray-400">Analyses</p>
+                  <p className="font-semibold text-gray-900 dark:text-white">{history.length}</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -240,6 +363,53 @@ export default function UserDashboard() {
             value={improvement > 0 ? `+${improvement}` : `${improvement}`}
           />
         </div>
+
+        <Card className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <Trophy className="w-4 h-4 text-amber-500" /> Leaderboard
+            </h2>
+            {myRank && (
+              <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                Your Rank: #{myRank.rank}
+              </span>
+            )}
+          </div>
+
+          {leaderboardLoading ? (
+            <SkeletonLoader rows={3} />
+          ) : leaderboard.length === 0 ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">No leaderboard data yet.</p>
+          ) : (
+            <div className="grid md:grid-cols-2 gap-3">
+              {leaderboard.slice(0, 6).map((entry) => {
+                const isMe = entry.user_id === user?.id;
+                return (
+                  <div
+                    key={entry.rank}
+                    className={`rounded-xl border p-3 flex items-center justify-between ${
+                      isMe
+                        ? "border-blue-300 bg-blue-50/60 dark:border-blue-700 dark:bg-blue-900/20"
+                        : "border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-800/40"
+                    }`}
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                        #{entry.rank} {entry.name}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {entry.email || "hidden"} • {entry.analyses} analyses
+                      </p>
+                    </div>
+                    <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+                      {entry.best_score}%
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
 
         {/* ---- Tabs ---- */}
         <div className="flex gap-2 mb-6 bg-white dark:bg-gray-800 rounded-xl p-1.5 w-fit shadow-sm border border-gray-100 dark:border-gray-700">
@@ -450,7 +620,18 @@ export default function UserDashboard() {
                 hrQuestions={hrQuestions}
                 hrLoading={hrLoading}
                 onGenerateHR={handleGenerateHR}
-                showHRButton={!selectedDetail}
+                displayName={displayName}
+                onOpenAIInterview={() => window.open("https://ai-quiz-opal.vercel.app/", "_blank", "noopener,noreferrer")}
+                jobDescription={jobDescription}
+                setJobDescription={setJobDescription}
+                onRunJobMatch={handleJobMatch}
+                jobMatchLoading={jobMatchLoading}
+                jobMatchResult={jobMatchResult}
+                targetRole={targetRole}
+                setTargetRole={setTargetRole}
+                onRunCareerPlan={handleCareerPlan}
+                careerPlanLoading={careerPlanLoading}
+                careerPlan={careerPlan}
               />
             )}
           </>
@@ -690,10 +871,21 @@ function ResultsView({
   data,
   fileName,
   createdAt,
+  displayName,
   hrQuestions,
   hrLoading,
   onGenerateHR,
-  showHRButton,
+  onOpenAIInterview,
+  jobDescription,
+  setJobDescription,
+  onRunJobMatch,
+  jobMatchLoading,
+  jobMatchResult,
+  targetRole,
+  setTargetRole,
+  onRunCareerPlan,
+  careerPlanLoading,
+  careerPlan,
 }) {
   const score = data.algorithm_score;
   const strengths = data.strengths || [];
@@ -702,6 +894,61 @@ function ResultsView({
   const suggestions = data.suggestions || [];
   const tips = data.tips || [];
   const builtInHR = data.hr_questions || [];
+
+  function downloadShareCard() {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1200;
+    canvas.height = 630;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const gradient = ctx.createLinearGradient(0, 0, 1200, 630);
+    gradient.addColorStop(0, "#0f172a");
+    gradient.addColorStop(1, "#312e81");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 1200, 630);
+
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.beginPath();
+    ctx.arc(980, 130, 170, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#c7d2fe";
+    ctx.font = "700 28px Inter, Arial";
+    ctx.fillText("Resume Analyzer", 64, 78);
+
+    ctx.fillStyle = "#e2e8f0";
+    ctx.font = "700 56px Inter, Arial";
+    ctx.fillText(`ATS Score: ${score}%`, 64, 190);
+
+    ctx.font = "500 30px Inter, Arial";
+    ctx.fillStyle = "#cbd5e1";
+    ctx.fillText(`Candidate: ${displayName}`, 64, 245);
+    ctx.fillText(`Resume: ${fileName || "Latest Analysis"}`, 64, 290);
+
+    const topStrength = strengths[0] || "Strong profile foundation with improvement momentum.";
+    const suggestion = suggestions[0] || "Add measurable impact and role-specific keywords.";
+
+    ctx.font = "600 26px Inter, Arial";
+    ctx.fillStyle = "#a5b4fc";
+    ctx.fillText("Top Strength", 64, 370);
+    ctx.fillStyle = "#f8fafc";
+    wrapText(ctx, topStrength, 64, 410, 1040, 36);
+
+    ctx.fillStyle = "#a5b4fc";
+    ctx.fillText("Priority Improvement", 64, 500);
+    ctx.fillStyle = "#f8fafc";
+    wrapText(ctx, suggestion, 64, 540, 1040, 36);
+
+    ctx.fillStyle = "#cbd5e1";
+    ctx.font = "500 20px Inter, Arial";
+    ctx.fillText("Generated by Resume Analyzer • AI ATS + Mentor Insights", 64, 592);
+
+    const link = document.createElement("a");
+    link.download = `resume-analyzer-share-${Date.now()}.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  }
 
   return (
     <div className="space-y-6">
@@ -852,9 +1099,8 @@ function ResultsView({
       )}
 
       {/* Generate advanced HR questions */}
-      {showHRButton && (
-        <Card>
-          <div className="flex items-center justify-between">
+      <Card>
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1 flex items-center gap-2">
                 <MessageSquare className="w-4 h-4 text-blue-500" /> Advanced
@@ -870,6 +1116,22 @@ function ResultsView({
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition disabled:opacity-50 shadow-sm"
             >
               {hrLoading ? "Generating..." : "Generate"}
+            </button>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              onClick={onOpenAIInterview}
+              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white dark:text-slate-900 text-white rounded-lg text-sm font-medium transition inline-flex items-center gap-1.5"
+            >
+              Open AI Interview
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={downloadShareCard}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition"
+            >
+              Share Output PNG
             </button>
           </div>
 
@@ -899,7 +1161,97 @@ function ResultsView({
             </div>
           )}
         </Card>
-      )}
+
+      <div className="grid md:grid-cols-2 gap-6">
+        <Card>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
+            Job-Targeted Match
+          </h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            Paste a real job description and get fit score, missing priorities, and rewrite direction.
+          </p>
+          <textarea
+            value={jobDescription}
+            onChange={(e) => setJobDescription(e.target.value)}
+            placeholder="Paste job description here..."
+            className="w-full min-h-28 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm"
+          />
+          <button
+            onClick={onRunJobMatch}
+            disabled={jobMatchLoading}
+            className="mt-3 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition disabled:opacity-50"
+          >
+            {jobMatchLoading ? "Matching..." : "Run Job Match"}
+          </button>
+
+          {jobMatchResult && (
+            <div className="mt-4 space-y-2 text-sm">
+              <p className="font-semibold text-gray-900 dark:text-white">
+                Match Score: <span className="text-blue-600 dark:text-blue-400">{jobMatchResult.match_score}%</span>
+              </p>
+              {Array.isArray(jobMatchResult.priority_keywords) && jobMatchResult.priority_keywords.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {jobMatchResult.priority_keywords.slice(0, 8).map((kw, i) => (
+                    <span key={i} className="px-2 py-1 rounded-full text-xs bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300">
+                      {kw}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {jobMatchResult.rewrite_summary && (
+                <p className="text-gray-600 dark:text-gray-300">{jobMatchResult.rewrite_summary}</p>
+              )}
+            </div>
+          )}
+        </Card>
+
+        <Card>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
+            30-Day Mentor Plan (Optional)
+          </h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            Generate a realistic plan with mentor rules + HR expectations only when you want it.
+          </p>
+          <input
+            value={targetRole}
+            onChange={(e) => setTargetRole(e.target.value)}
+            placeholder="Target role (e.g., Backend Engineer)"
+            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm"
+          />
+          <button
+            onClick={onRunCareerPlan}
+            disabled={careerPlanLoading}
+            className="mt-3 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm font-medium transition disabled:opacity-50"
+          >
+            {careerPlanLoading ? "Building Plan..." : "Generate Mentor Plan"}
+          </button>
+
+          {careerPlan && (
+            <div className="mt-4 space-y-3">
+              {Array.isArray(careerPlan.mentor_rules) && careerPlan.mentor_rules.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-400 mb-1">Mentor Rules</p>
+                  <ul className="space-y-1">
+                    {careerPlan.mentor_rules.slice(0, 4).map((rule, i) => (
+                      <li key={i} className="text-sm text-gray-700 dark:text-gray-300">• {rule}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {Array.isArray(careerPlan.hr_expectations) && careerPlan.hr_expectations.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-400 mb-1">HR Expectations</p>
+                  <ul className="space-y-1">
+                    {careerPlan.hr_expectations.slice(0, 4).map((rule, i) => (
+                      <li key={i} className="text-sm text-gray-700 dark:text-gray-300">• {rule}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+      </div>
 
       {/* Score breakdown progress bars */}
       <Card>
@@ -935,4 +1287,21 @@ function ResultsView({
       </Card>
     </div>
   );
+}
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = (text || "").split(" ");
+  let line = "";
+  for (let n = 0; n < words.length; n += 1) {
+    const testLine = `${line}${words[n]} `;
+    const metrics = ctx.measureText(testLine);
+    if (metrics.width > maxWidth && n > 0) {
+      ctx.fillText(line, x, y);
+      line = `${words[n]} `;
+      y += lineHeight;
+    } else {
+      line = testLine;
+    }
+  }
+  ctx.fillText(line, x, y);
 }

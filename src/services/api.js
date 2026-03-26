@@ -79,6 +79,37 @@ export async function deleteHistory(id, token) {
   return res.data;
 }
 
+export async function getLeaderboard(token) {
+  const res = await axios.get(`${API_BASE}/leaderboard`, {
+    headers: authHeaders(token),
+  });
+  return res.data;
+}
+
+export async function getJobMatch(jobDescription, resumeText, token) {
+  const res = await axios.post(
+    `${API_BASE}/job-match`,
+    {
+      job_description: jobDescription,
+      resume_text: resumeText,
+    },
+    { headers: { "Content-Type": "application/json", ...authHeaders(token) } },
+  );
+  return res.data;
+}
+
+export async function getCareerPlan(targetRole, resumeSummary, token) {
+  const res = await axios.post(
+    `${API_BASE}/career-plan`,
+    {
+      target_role: targetRole,
+      resume_summary: resumeSummary,
+    },
+    { headers: { "Content-Type": "application/json", ...authHeaders(token) } },
+  );
+  return res.data;
+}
+
 // --- Admin ---
 
 export async function getAdminStats(token) {

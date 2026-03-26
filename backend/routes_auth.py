@@ -21,6 +21,18 @@ class LoginRequest(BaseModel):
     password: str
 
 
+def build_user_payload(user_doc: dict) -> dict:
+    """Return a consistent user shape for frontend profile display."""
+    fallback_name = (user_doc.get("email", "user").split("@")[0]).title()
+    return {
+        "id": str(user_doc.get("_id", user_doc.get("id", ""))),
+        "name": user_doc.get("name") or user_doc.get("username") or fallback_name,
+        "email": user_doc.get("email", ""),
+        "role": user_doc.get("role", "user"),
+        "created_at": user_doc.get("created_at"),
+    }
+
+
 @router.post("/register")
 async def register(req: RegisterRequest):
     try:
@@ -42,9 +54,11 @@ async def register(req: RegisterRequest):
         result = await db.users.insert_one(user_doc)
         token = create_access_token({"sub": str(result.inserted_id)})
 
+        user_doc["_id"] = result.inserted_id
+
         return {
             "token": token,
-            "user": {"id": str(result.inserted_id), "name": req.name, "email": req.email, "role": role},
+            "user": build_user_payload(user_doc),
         }
     except HTTPException:
         raise
@@ -68,7 +82,7 @@ async def login(req: LoginRequest):
 
         return {
             "token": token,
-            "user": {"id": str(user["_id"]), "name": user["name"], "email": user["email"], "role": user.get("role", "user")},
+            "user": build_user_payload(user),
         }
     except HTTPException:
         raise
@@ -81,4 +95,4 @@ async def login(req: LoginRequest):
 @router.get("/me")
 async def get_me(user: dict = Depends(get_current_user)):
     """Return the currently authenticated user."""
-    return {"id": user["id"], "name": user["name"], "email": user["email"], "role": user.get("role", "user")}
+    return build_user_payload(user)

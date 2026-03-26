@@ -24,7 +24,7 @@ export default function Register() {
     try {
       const data = await registerUser(name, email, password);
       login(data.token, data.user);
-      navigate("/");
+      navigate(data.user.role === "admin" ? "/admin" : "/dashboard");
     } catch (err) {
       setError(err.response?.data?.detail || "Registration failed");
     }
@@ -102,6 +102,11 @@ export default function Register() {
         </form>
 
         <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-6">
+          <Link to="/" className="mr-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-200">
+            Back to Home
+          </Link>
+          ·
+          {" "}
           Already have an account?{" "}
           <Link
             to="/login"
